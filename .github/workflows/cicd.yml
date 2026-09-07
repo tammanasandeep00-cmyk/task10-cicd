@@ -87,3 +87,52 @@ jobs:
         run: |
           docker push ${{ secrets.DOCKERHUB_USERNAME }}/task10-frontend:${IMAGE_TAG}
           docker push ${{ secrets.DOCKERHUB_USERNAME }}/task10-frontend:latest
+
+  deploy:
+    name: Deploy to AWS EC2
+    needs: docker
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Deploy application to EC2
+        env:
+          EC2_HOST: ${{ secrets.EC2_HOST }}
+          EC2_USER: ${{ secrets.EC2_USER }}
+          EC2_SSH_KEY: ${{ secrets.EC2_SSH_KEY }}
+        run: |
+          mkdir -p ~/.ssh
+
+          printf '%s\n' "$EC2_SSH_KEY" > ~/.ssh/task10-key.pem
+          chmod 600 ~/.ssh/task10-key.pem
+
+          ssh-keyscan -H "$EC2_HOST" >> ~/.ssh/known_hosts
+
+          ssh -i ~/.ssh/task10-key.pem "$EC2_USER@$EC2_HOST" <<'REMOTE'
+            set -e
+
+            echo "===== TASK 10 EC2 DEPLOYMENT ====="
+
+            cd ~/task10-cicd
+
+            echo "Updating deployment script..."
+            git pull origin main
+
+            echo "Running deployment..."
+            ./scripts/deploy.sh
+
+            echo "===== DEPLOYMENT VERIFICATION ====="
+
+            curl -f http://localhost/
+            echo
+
+            curl -f http://localhost/api/tasks
+            echo
+
+            curl -f http://localhost:5000/health
+            echo
+
+            echo "===== DEPLOYMENT SUCCESS ====="
+          REMOTE
+
+          rm -f ~/.ssh/task10-key.pem
